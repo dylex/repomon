@@ -1,0 +1,196 @@
+#!/bin/bash
+
+GIT="git"
+SVN="svn --non-interactive"
+HG="`dirname $0`/hgremote"
+
+CONFIG=~/.repomon.rc
+STATE=~/.repomon.state
+
+set -o pipefail
+export GIT_DIR=
+
+exists() {
+	declare -F "$@"
+} >/dev/null
+
+matchany() {
+	local f=$1
+	for p in "$@" ; do
+		[[ $f == $p ]] && return
+	done
+	false
+}
+
+repo_rev_git() {
+	$GIT ls-remote -q -h "$@" | cut -f1
+}
+
+repo_tags_git() {
+	local repo=$1 kind=$2 args="-q" ; shift 2
+	[[ $kind == *b* ]] && args="$args -h"
+	[[ $kind == *t* ]] && args="$args -t"
+	shift
+	$GIT ls-remote $args "$repo" "$@" | cut -f2 | sed 's:^refs/(heads|tags)/::'
+}
+
+repo_rev_svn() {
+	$SVN info "$1/$2" | awk -F': ' '$1=="Last Changed Rev"{print $2}'
+}
+
+repo_rev_hg() {
+	$HG "$1" heads "$2" | cut -f2
+}
+
+repo_tags_hg() {
+	local repo=$1 kind=$2 res=0 b i ; shift 2
+	if [[ $kind == *b* ]] ; then
+		b=`$HG "$repo" heads | cut -f1 | uniq`
+		res=$[res|$?]
+		if [[ $# -gt 0 ]] ; then
+			for i in $b ; do
+				matchany "$i" "$@" && echo $i
+			done
+		else
+			echo $b
+		fi
+	fi
+	if [[ $kind == *t* ]] ; then
+		$HG "$repo" tags "$@" | cut -f1
+		res=$[res|$?]
+	fi
+	return $res
+}
+
+# mtn?
+# darcs?
+# cvs?
+
+repo_rev() {
+	repo_rev_"$@"
+}
+
+repo_rev_diff() {
+	exists repo_rev_diff_$1 && repo_rev_diff_"$@"
+}
+
+repo_tags() {
+	repo_tags_"$@"
+}
+
+proc_rev() {
+	local -a branch=("$@")
+	[[ ${#branch} -gt 0 ]] || branch=("$def")
+	local -a cur=(${state[$id]})
+	for (( i=0 ; i<${#branch[@]} ; i++ )) ; do
+		b=${branch[$i]}
+		new=`repo_rev $prot $repo $b`
+		if [[ $? -ne 0 ]] ; then
+			echo "$id $b error"
+		elif [[ -z $new ]] ; then
+			echo "$id $b not found"
+		elif [[ -z ${cur[$i]} ]] ; then
+			echo "$id $b created"
+			cur[$i]=$new
+		elif [[ $new != ${cur[$i]} ]] ; then
+			echo "$id $b updated to $new"
+			repo_rev_diff $prot $repo ${cur[$i]} $new
+			cur[$i]=$new
+		fi
+	done
+	state[$id]="${cur[*]//[
+	 ]/,}"
+}
+
+proc_tags() {
+	new=`repo_tags $prot $repo "$@" | sort`
+	new=`echo $new`
+	if [[ $? -ne 0 ]] ; then
+		echo "$id error"
+	elif [[ ${state[$id]:+1} && $new != ${state[$id]} ]] ; then
+		# only add?
+		echo "$id del	add:"
+		comm -3 /dev/fd/3 /dev/fd/4 3<<<"${state[$id]// /
+}" 4<<<"${new// /
+}"
+	fi
+	state[$id]=$new
+}
+
+proc_any() {
+	local kind opt OPTIND=1
+	while getopts ':tb' opt ; do
+		if [[ $opt = [tb] ]] ; then
+			kind="$kind$opt"
+		else
+			echo "$id: unknown option -$OPTARG" >&2
+		fi
+	done
+	shift $[OPTIND-1]
+
+	if [[ $kind ]] ; then
+		proc_tags $kind "$@"
+	else
+		proc_rev "$@"
+	fi
+}
+
+process_git() {
+	def=master
+	proc_any "$@"
+}
+
+process_svn() {
+	def=/
+	proc_rev "$@"
+}
+
+process_hg() {
+	def=default
+	proc_any "$@"
+}
+
+process() {
+	local -A seen
+	local args
+	while read id prot repo args ; do
+		if [[ $id == \#* ]] ; then
+			:
+		elif [[ ${seen[$id]:+1} ]] ; then
+			echo "$id: duplicate entry" >&2
+		elif ! exists process_$prot ; then
+			echo "$id: unknown type: $prot" >&2
+		else
+			process_$prot $args
+		fi
+	done
+} < $CONFIG
+
+read_state() {
+	while read id s ; do
+		state[$id]=$s
+	done
+} < $STATE
+
+write_state() {
+	for id in "${!state[@]}" ; do
+		echo "$id ${state[$id]}"
+	done > $STATE.new
+	mv -f $STATE.new $STATE
+}
+
+usage() {
+	echo "Usage: $0 [-c CONFIG] [-s STATE]"
+} >&2
+
+while getopts 'c:s:' opt ; do case $opt in
+	(c) CONFIG=$OPTARG ;;
+	(s) STATE=$OPTARG ;;
+	(?) usage ; exit 1 ;;
+esac ; done
+shift $[OPTIND-1]
+
+declare -A state
+[[ -r $STATE ]] && read_state
+process
+write_state

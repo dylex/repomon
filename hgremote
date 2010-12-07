@@ -1,0 +1,65 @@
+#!/usr/bin/python
+
+import sys
+import fnmatch
+try:
+	from mercurial import ui, hg, error, node
+except ImportError:
+	sys.stderr.write("mercurial libraries not found\n")
+	sys.exit(-1)
+
+def showheads(name, revs):
+	sys.stdout.write(name + "\t" + ",".join([node.hex(r) for r in revs]) + "\n")
+
+def heads(repo, args):
+	bm = repo.branchmap()
+	if args:
+		for a in args:
+			try:
+				showheads(a, bm[a])
+			except KeyError:
+				sys.stderr.write("branch " + a + " not found\n")
+	else:
+		for b, h in bm.iteritems():
+			showheads(b, h)
+
+def fnmatchany(f, pl):
+	for p in pl:
+		if fnmatch.fnmatchcase(f, p):
+			return True
+	return False
+
+def tags(repo, args):
+	if repo.local():
+		tags = repo.tagslist()
+	else:
+		r = repo.do_read("tags", style="raw")
+		tags = [(t, node.bin(r)) for t, x, r in [t.partition("\t") for t in r.splitlines()]]
+	if args:
+		tags = [(t, r) for t, r in tags if fnmatchany(t, args)]
+	for t, r in tags:
+		showheads(t, [r])
+
+if len(sys.argv) < 3:
+	sys.stderr.write("Usage: " + sys.argv[0] + " REPO CMD [ARG]...\n")
+	sys.exit(1)
+
+cmds = {
+	"heads": heads,
+	"tags": tags
+}
+
+ui = ui.ui()
+source, cmd, args = sys.argv[1], sys.argv[2], sys.argv[3:]
+try:
+	fun = cmds[cmd]
+except KeyError:
+	sys.stderr.write("unknown command: " + cmd + "\n")
+	sys.exit(1)
+try:
+	repo = hg.repository(ui, source)
+except error.RepoError, e:
+	sys.stderr.write(str(e) + "\n")
+	sys.exit(2)
+
+fun(repo, args)
