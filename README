@@ -1,0 +1,38 @@
+repomon is a simple script designed to monitor various remote repositories and
+notify you when there are updates.  It supports git, subversion, mercurial,
+maybe more in the future.
+
+It reads ~/.repomon.rc (can be overridden on the command line with -c), which
+lists one repository per line in the following format (delimited by
+whitespace):
+
+identifier	protocol	url	[-bt] arguments...
+
+	identifier:	any unique identifier
+	protocol:	git, hg, or svn
+	url:		url of repository
+	arguments:	branch name (where relevant) or
+			-b branch glob pattern
+			-t tag glob pattern
+
+Blank lines and those beginning with # are ignored.
+
+When repomon is run, it prints (on stdout) any new activity in the repositories
+specified.  For example, you may want a cron job like this:
+
+0 6 * * * repomon
+
+For now the output is very minimal (basically just revision numbers), and
+there's no output if nothing has changed.  The (human-readable) state is stored
+in ~/.repomon.state (override with -s).
+
+Examples:
+
+# watch for any new commits to subversion itself (branch is just appended to url):
+subversion svn http://svn.apache.org/repos/asf/subversion trunk
+# watch for any new commits to the linux 2.6 stable branch:
+linux-stable git git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-2.6-stable.git stable
+# watch for any new branch in the linux 2.6 stable repo:
+linux-rel git git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux-2.6-stable.git -b
+# watch for new firefox release tags in the mozilla repository:
+firefox-central hg http://hg.mozilla.org/mozilla-central -t FIREFOX_*_RELEASE

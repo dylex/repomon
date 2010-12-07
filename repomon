@@ -154,7 +154,7 @@ process() {
 	local -A seen
 	local args
 	while read id prot repo args ; do
-		if [[ $id == \#* ]] ; then
+		if [[ -z $id || $id == \#* ]] ; then
 			:
 		elif [[ ${seen[$id]:+1} ]] ; then
 			echo "$id: duplicate entry" >&2
