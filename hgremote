@@ -4,9 +4,12 @@ import sys
 import fnmatch
 try:
 	from mercurial import ui, hg, error, node
+	from mercurial.tags import findglobaltags
 except ImportError:
 	sys.stderr.write("mercurial libraries not found\n")
 	sys.exit(-1)
+
+ui = ui.ui()
 
 def showheads(name, revs):
 	sys.stdout.write(name + "\t" + ",".join([node.hex(r) for r in revs]) + "\n")
@@ -30,14 +33,11 @@ def fnmatchany(f, pl):
 	return False
 
 def tags(repo, args):
-	if repo.local():
-		tags = repo.tagslist()
-	else:
-		r = repo.do_read("tags", style="raw")
-		tags = [(t, node.bin(r)) for t, x, r in [t.partition("\t") for t in r.splitlines()]]
-	if args:
-		tags = [(t, r) for t, r in tags if fnmatchany(t, args)]
-	for t, r in tags:
+	tags = {}
+	tagtys = {}
+	findglobaltags(ui, repo, tags, tagtys)
+	for t, (r, h) in tags.iteritems():
+	    if not(args) or fnmatchany(t, args):
 		showheads(t, [r])
 
 if len(sys.argv) < 3:
@@ -49,7 +49,6 @@ cmds = {
 	"tags": tags
 }
 
-ui = ui.ui()
 source, cmd, args = sys.argv[1], sys.argv[2], sys.argv[3:]
 try:
 	fun = cmds[cmd]
