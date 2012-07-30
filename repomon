@@ -34,6 +34,11 @@ repo_tags_git() {
 	$GIT ls-remote $args "$repo" "$@" | cut -f2 | sed 's:^refs/(heads|tags)/::'
 }
 
+repo_update_git() {
+	local repo=$1 ; shift
+	( cd $repo && git remote update "$@" )
+}
+
 repo_rev_svn() {
 	$SVN info "$1/$2" | awk -F': ' '$1=="Last Changed Rev"{print $2}'
 }
@@ -62,8 +67,13 @@ repo_tags_hg() {
 	return $res
 }
 
+repo_update_hg() {
+	local repo=$1 ; shift
+	( cd $repo && hg pull "$@" )
+}
+
 # mtn?
-# darcs?
+# darcs?  darcs changes -repo (in 2.5?)
 # cvs?
 
 repo_rev() {
@@ -76,6 +86,10 @@ repo_rev_diff() {
 
 repo_tags() {
 	repo_tags_"$@"
+}
+
+repo_update() {
+	repo_update_"$@"
 }
 
 proc_rev() {
@@ -117,11 +131,17 @@ proc_tags() {
 	state[$id]=$new
 }
 
+update() {
+	repo_update $prot "$repo" "$@"
+}
+
 proc_any() {
-	local kind opt OPTIND=1
-	while getopts ':tb' opt ; do
+	local kind opt update OPTIND=1
+	while getopts ':tbu' opt ; do
 		if [[ $opt = [tb] ]] ; then
 			kind="$kind$opt"
+		elif [[ $opt = u ]] ; then
+			update
 		else
 			echo "$id: unknown option -$OPTARG" >&2
 		fi
